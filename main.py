@@ -1,3 +1,4 @@
+import warnings
 import argparse
 import os
 import torch
@@ -10,6 +11,10 @@ from torch.utils.data.dataloader import DataLoader
 from dataset import BasicDataset
 from utils import AverageMeter
 from torchvision import transforms, utils
+from matplotlib import pyplot as plt
+from PIL import Image
+import numpy as np
+
 
 TRAIN_DIR = 'Data/input/'
 MASK_DIR = 'Data/output/'
@@ -46,6 +51,12 @@ if __name__ == '__main__':
 
     
     for epoch in range(args.epochs):
+
+        try:
+            os.makedirs('Output/' + str(epoch))
+        except Exception as e:
+            print(e)
+
         model.train()
 
         epoch_losses = AverageMeter()
@@ -53,12 +64,45 @@ if __name__ == '__main__':
         with tqdm(total=(len(train_dataset) - len(train_dataset) % args.batch_size)) as t:
             t.set_description('epoch: {}/{}'.format(epoch, args.epochs - 1))
 
-            for data in train_dataloader:
+            for iteration, data in enumerate(train_dataloader):
 
                 inputs = data['image']
                 mask = data['mask']
                 inputs = inputs.to(device)
                 mask = mask.to(device)
+
+                preds = model(inputs)
+
+                loss = criterion(preds, mask)
+
+                epoch_losses.update(loss.item(), len(inputs))
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                input = np.array(inputs.detach().cpu()[0]).transpose((1,2,0))
+                preds = np.array(preds.detach().cpu()[0]).transpose((1,2,0))
+                mask = np.array(mask.detach().cpu()[0]).transpose((1,2,0))
+
+                input = input/np.max(input)
+                input = np.clip(input, 0, 1)
+
+                preds = preds/np.max(preds)
+                preds = np.clip(preds, 0, 1)
+
+                mask = mask/np.max(mask)
+                mask = np.clip(mask, 0, 1)
+
+                fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20,15))
+                ax1.imshow(input.astype(float))
+                ax2.imshow(preds.astype(float))
+                ax3.imshow(mask.astype(float))
+                plt.savefig('Output/{}/{}.png'.format(epoch, iteration))
+
+                t.set_postfix(loss='{:.6f}'.format(epoch_losses.avg))
+                t.update(len(inputs))
+
+        torch.save(model.state_dict(), os.path.join(args.outputs_dir, 'epoch_{}.pth'.format(epoch)))
 
     
 
